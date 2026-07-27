@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cine Ark — دار العرض</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Tajawal:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --void:#060a16;
@@ -37,7 +38,8 @@ body{
 #particleCanvas{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.55;}
 #ambientGlow{
   position:fixed;inset:-10%;z-index:0;pointer-events:none;background-size:cover;background-position:center;
-  filter:blur(60px) saturate(1.3) brightness(.6);opacity:0;transition:opacity .6s ease;transform:scale(1.1);
+  filter:blur(42px) saturate(1.3) brightness(.6);opacity:0;transition:opacity .6s ease;transform:scale(1.1);
+  will-change:opacity;
 }
 #ambientGlow.show{opacity:.35;}
 header,.hero,.container,.site-footer,#modal{position:relative;z-index:1;}
@@ -48,7 +50,7 @@ header{
   display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;
   padding:16px 40px;
   background:rgba(10,12,22,0.82);
-  backdrop-filter:blur(14px);
+  backdrop-filter:blur(10px);
   border-bottom:1px solid var(--line);
 }
 .brand{display:flex; align-items:center; gap:12px;}
@@ -148,6 +150,8 @@ nav button.active{background:linear-gradient(135deg,var(--azure),#1e5fd6);color:
   background:var(--panel);border-radius:18px;overflow:hidden;cursor:pointer;
   border:1px solid var(--line);transition:transform .35s,box-shadow .35s,border-color .35s;
   position:relative;
+  content-visibility:auto;
+  contain-intrinsic-size:200px 380px;
 }
 .card:hover{transform:translateY(-6px);box-shadow:0 18px 36px rgba(0,0,0,0.45),var(--shadow-azure);border-color:var(--azure);}
 .poster-wrap{position:relative;}
@@ -194,7 +198,7 @@ nav button.active{background:linear-gradient(135deg,var(--azure),#1e5fd6);color:
 
 /* ---------- MODAL ---------- */
 #modal{
-  display:none;position:fixed;inset:0;background:rgba(5,6,12,.9);backdrop-filter:blur(8px);
+  display:none;position:fixed;inset:0;background:rgba(5,6,12,.9);backdrop-filter:blur(6px);
   align-items:center;justify-content:center;z-index:100;opacity:0;transition:opacity .3s;padding:20px;
 }
 #modal.show{display:flex;opacity:1;}
@@ -302,7 +306,7 @@ button:focus-visible, input:focus-visible, a:focus-visible{outline:2px solid var
 
 <div id="modal">
   <div id="modalContent">
-    <img id="modalImage" alt=""/>
+    <img id="modalImage" alt="" loading="lazy" decoding="async"/>
     <div>
       <button id="closeModalBtn" onclick="closeModal()" aria-label="إغلاق">✕</button>
       <button id="modalFavBtn" class="fav-btn" style="position:absolute;top:18px;left:60px;bottom:auto;" aria-label="إضافة للمفضلة" title="إضافة للمفضلة"><span>❤️</span></button>
@@ -526,7 +530,7 @@ function render(){
     const isFav = favorites.has(item.id);
     card.innerHTML = `
       <div class="poster-wrap">
-        <img class="poster" src="${item.image.trim()}" alt="${item.title}" loading="lazy"
+        <img class="poster" src="${item.image.trim()}" alt="${item.title}" loading="lazy" decoding="async"
              onerror="this.onerror=null;this.src='${FALLBACK_IMG}';">
         <div class="type-chip">${item.type === 'series' ? 'مسلسل' : 'فيلم'}</div>
         ${ribbon}
@@ -645,17 +649,22 @@ function clearAmbientGlow(){
 /* ---------- lightweight ambient particle field ---------- */
 (function initParticles(){
   const canvas = document.getElementById('particleCanvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isSmallScreen = window.innerWidth < 640;
   let particles = [];
   let w, h;
+  let running = false;
+  let resizeTimer = null;
 
   function resize(){
     w = canvas.width = window.innerWidth;
     h = canvas.height = window.innerHeight;
   }
   function makeParticles(){
-    const count = Math.min(70, Math.floor((w*h)/22000));
+    /* fewer particles overall, and even fewer on small/mobile screens for a lighter footprint */
+    const cap = isSmallScreen ? 28 : 55;
+    const count = Math.min(cap, Math.floor((w*h)/32000));
     particles = Array.from({length:count}, () => ({
       x: Math.random()*w, y: Math.random()*h,
       r: Math.random()*1.8 + .4,
@@ -664,7 +673,7 @@ function clearAmbientGlow(){
       a: Math.random()*.5 + .15
     }));
   }
-  function tick(){
+  function draw(){
     ctx.clearRect(0,0,w,h);
     particles.forEach(p => {
       p.x += p.vx; p.y += p.vy;
@@ -676,14 +685,36 @@ function clearAmbientGlow(){
       ctx.fillStyle = `rgba(159,202,255,${p.a})`;
       ctx.fill();
     });
-    if(!reduceMotion) requestAnimationFrame(tick);
+  }
+  function tick(){
+    if(!running) return;
+    draw();
+    requestAnimationFrame(tick);
+  }
+  function start(){
+    if(running || reduceMotion) return;
+    running = true;
+    requestAnimationFrame(tick);
+  }
+  function stop(){
+    running = false;
   }
 
   resize();
   makeParticles();
-  window.addEventListener('resize', () => { resize(); makeParticles(); });
-  if(!reduceMotion) requestAnimationFrame(tick);
-  else tick(); /* draw a single static frame */
+
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { resize(); makeParticles(); }, 150);
+  });
+
+  /* pause the animation entirely when the tab is hidden - saves CPU/battery with zero visual cost */
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden) stop(); else start();
+  });
+
+  if(!reduceMotion && !document.hidden) start();
+  else draw(); /* draw a single static frame */
 })();
 
 updateWatchlistCount();
